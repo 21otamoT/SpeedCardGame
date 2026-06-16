@@ -5,6 +5,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -42,6 +45,11 @@ import kotlin.Pair
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.ExperimentalFoundationApi // 👈 animateItem用
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -80,6 +88,21 @@ class MainActivity : ComponentActivity() {
             // null: プレイ中, "PLAYER": プレイヤー勝利, "COM": COMの勝利
             var winner by remember { mutableStateOf<String?>(null) }
 
+            // GAME画面のスコープ内に追加
+            var leftFieldOffset by remember { mutableStateOf(Offset.Zero) }
+            var rightFieldOffset by remember { mutableStateOf(Offset.Zero) }
+
+            // アニメーション中のカード情報（nullならアニメーションしていない）
+            var flyingCard by remember { mutableStateOf<Card?>(null) }
+            var flyingCardOffset by remember { mutableStateOf(Offset.Zero) }
+            // 実際のアニメーション値を生成するクラス
+            val animatableOffset = remember {
+                Animatable(
+                    Offset.Zero,
+                    Offset.VectorConverter
+                )
+            }
+
             // -------------------------------------------------------------
             // 【新設】手札や山札の変化を監視して勝敗を判定する (Reactの useEffect に相当)
             // -------------------------------------------------------------
@@ -101,7 +124,7 @@ class MainActivity : ComponentActivity() {
             // -------------------------------------------------------------
             // COMの自動思考 ＋ 手詰まり自動解消ループ
             // -------------------------------------------------------------
-            LaunchedEffect(winner) {
+            LaunchedEffect(winner, currentScreen) {
                 if (winner != null || currentScreen != "GAME") return@LaunchedEffect
                 var stuckCount = 0
                 while (true) {
@@ -254,7 +277,7 @@ class MainActivity : ComponentActivity() {
                             // 【上】COMの手札
                             PlayerHandsView(
                                 hands = comHands,
-                                onCardClick = {
+                                onCardClick = { _, _ ->
                                     Toast.makeText(context, "それは相手の手札です", Toast.LENGTH_SHORT).show()
                                 }
                             )
@@ -270,38 +293,87 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 // 左の場
                                 fieldCards.first?.let { leftCard ->
-                                    PlayingCardView(card = leftCard, modifier = Modifier.padding(8.dp))
+                                    PlayingCardView(card = leftCard, modifier = Modifier
+                                        .padding(8.dp)
+                                        .onGloballyPositioned{ coordinates ->
+                                            // 左の場の絶対座標を保存
+                                            leftFieldOffset = coordinates.positionInRoot()
+                                        }
+                                    )
                                 }
                                 // 右の場
                                 fieldCards.second?.let { rightCard ->
-                                    PlayingCardView(card = rightCard, modifier = Modifier.padding(8.dp))
+                                    PlayingCardView(card = rightCard, modifier = Modifier
+                                        .padding(8.dp)
+                                        .onGloballyPositioned{ coordinates ->
+                                            // 右の場の絶対座標を保存
+                                            rightFieldOffset = coordinates.positionInRoot()
+                                        }
+                                    )
                                 }
                             }
 
                             // 【下】プレイヤーの手札
                             PlayerHandsView(
                                 hands = playerHands,
-                                onCardClick = { clickedCard ->
+                                onCardClick = { clickedCard, startOffset ->
                                     val leftField = fieldCards.first
                                     val rightField = fieldCards.second
 
+                                    // 飛ぶ前の事前チェック
                                     if ((leftField != null && canPlaceCard(leftField, clickedCard)) ||
                                         (rightField != null && canPlaceCard(rightField, clickedCard))) {
 
                                         coroutineScope.launch {
-                                            if (leftField != null && canPlaceCard(leftField, clickedCard)) {
-                                                fieldCards = Pair(clickedCard, rightField)
-                                            } else if (rightField != null && canPlaceCard(rightField, clickedCard)) {
-                                                fieldCards = Pair(leftField, clickedCard)
+                                            flyingCard = clickedCard
+                                            animatableOffset.snapTo(startOffset)
+
+                                            val targetOffset = if (leftField != null && canPlaceCard(leftField, clickedCard)) {
+                                                leftFieldOffset
+                                            } else {
+                                                rightFieldOffset
                                             }
 
-                                            playerHands = refreshHands(playerHands, clickedCard, drawDeck)
-                                            if (drawDeck.isNotEmpty()) drawDeck = drawDeck.drop(1)
+                                            // 🚀 場に向かってスライドアニメーションを実行！（250ミリ秒）
+                                            animatableOffset.animateTo(
+                                                targetValue = targetOffset,
+                                                animationSpec = tween(durationMillis = 250)
+                                            )
+
+                                            // 🌟 【重要】アニメーション完了後の「最新の場の状態」を取得する
+                                            val currentLeft = fieldCards.first
+                                            val currentRight = fieldCards.second
+
+                                            // 最新の場で改めて出せるかチェック！（飛んでいる間にCOMに出されていないか？）
+                                            if (currentLeft != null && canPlaceCard(currentLeft, clickedCard)) {
+                                                fieldCards = Pair(clickedCard, currentRight)
+                                                playerHands = refreshHands(playerHands, clickedCard, drawDeck)
+                                                if (drawDeck.isNotEmpty()) drawDeck = drawDeck.drop(1)
+                                            } else if (currentRight != null && canPlaceCard(currentRight, clickedCard)) {
+                                                fieldCards = Pair(currentLeft, clickedCard)
+                                                playerHands = refreshHands(playerHands, clickedCard, drawDeck)
+                                                if (drawDeck.isNotEmpty()) drawDeck = drawDeck.drop(1)
+                                            } else {
+                                                // タッチの差でCOMに先を越された場合の処理（スピードの醍醐味！）
+                                                Toast.makeText(context, "タッチの差で出せなくなった！", Toast.LENGTH_SHORT).show()
+                                            }
+
+                                            flyingCard = null
                                         }
                                     } else {
                                         Toast.makeText(context, "そのカードは出せません！", Toast.LENGTH_SHORT).show()
                                     }
                                 }
+                            )
+                        }
+                        // flyingCardがnullでない時だけ、最前面にカードを描画
+                        flyingCard?.let { card ->
+                            PlayingCardView(
+                                card = card,
+                                modifier = Modifier
+                                    // 取得したアニメーションの現在地へオフセット（移動）させる
+                                    .offset { IntOffset(animatableOffset.value.x.toInt(), animatableOffset.value.y.toInt()) }
+                                    .zIndex(10f) // 他の全ての要素より上に表示
                             )
                         }
                     }
@@ -438,41 +510,41 @@ fun PlayingCardView(card: Card, modifier: Modifier = Modifier) {
 @Composable
 fun PlayerHandsView(
     hands: List<Card>,
-    onCardClick: (Card) -> Unit
+    onCardClick: (Card, Offset) -> Unit // 💡 座標(Offset)も一緒に渡すように変更
 ) {
-    // 💡 Row の代わりに LazyRow を使用します
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 💡 常に4つの枠をアニメーションさせるため、0〜3の固定リストをベースにします
-        // key を指定することで、カードの追加・削除時のアニメーションが正確になります
         items(
             count = 4,
             key = { index ->
-                // この枠にあるカードのID、無ければ枠の番号をキーにする
                 if (index < hands.size) hands[index].id else "empty_$index"
             }
         ) { index ->
             if (index < hands.size) {
                 val card = hands[index]
+                // 💡 このカードの画面上の現在地を保存するState
+                var currentOffset by remember { mutableStateOf(Offset.Zero) }
+
                 PlayingCardView(
                     card = card,
                     modifier = Modifier
-                        // 💡 これを書くだけで、位置が変わったときにフワッと自動移動アニメーションが走ります！
                         .animateItem()
-                        // LazyRowの中では weight の代わりに fillParentMaxWidth(0.22f) などで横幅を調整します
-                        // 4枚並べるので、1枚あたり全体の約22%（余白を考慮）の幅にします
                         .fillParentMaxWidth(0.22f)
-                        .clickable { onCardClick(card) }
+                        .onGloballyPositioned { coordinates ->
+                            // 💡 描画されたら絶対座標を取得
+                            currentOffset = coordinates.positionInRoot()
+                        }
+                        // 💡 クリックされた時、カード情報と一緒に「現在地」も渡す
+                        .clickable { onCardClick(card, currentOffset) }
                 )
             } else {
-                // カードが無い空の枠
                 Box(
                     modifier = Modifier
-                        .animateItem() // 👈 空枠への変化もアニメーションさせる
+                        .animateItem()
                         .fillParentMaxWidth(0.22f)
                         .height(130.dp)
                 )

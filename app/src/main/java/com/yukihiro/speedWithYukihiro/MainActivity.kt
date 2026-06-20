@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.VectorConverter
@@ -40,7 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.delay
-import java.util.UUID
 import kotlin.Pair
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.ExperimentalFoundationApi // 👈 animateItem用
@@ -50,15 +48,26 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
+import com.google.android.gms.ads.MobileAds
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        val adManager = InterstitialAdManager(this)
+        // SDKの初期化と広告の初回ロード
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            MobileAds.initialize(this@MainActivity) {
+                runOnUiThread {
+                    // ログで確認した、正しいIDを使ってロードが始まります
+                    adManager.loadAd()
+                }
+            }
+        }
         setContent {
             val context = LocalContext.current
-
             // 💡 エンジンとCOMクラスをrememberで生成して保持
             val engine = remember { SpeedGameEngine() }
             val comPlayer = remember { ComPlayer(engine) }
@@ -66,6 +75,13 @@ class MainActivity : ComponentActivity() {
             // 勝敗の監視
             LaunchedEffect(engine.playerHands, engine.comHands, engine.drawDeck) {
                 engine.checkWinner()
+                if (engine.winner != null && engine.currentScreen == "GAME") {
+                    // 勝敗が決まったら、まず広告を表示する
+                    adManager.showAd {
+                        // 💡 広告が閉じられた（または準備がなくてスキップされた）後に、初めて結果画面に切り替える
+                        engine.currentScreen = "RESULT"
+                    }
+                }
             }
 
             // COMの自動思考 ＋ 手詰まり自動解消ループ

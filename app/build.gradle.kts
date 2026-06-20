@@ -1,6 +1,16 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// 1. local.propertiesを読み込む設定
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
 }
 
 android {
@@ -19,15 +29,31 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Kotlinコード側でBuildConfigを使えるようにする設定
+        buildConfigField("Boolean", "IS_RELEASE", "false")
     }
 
     buildTypes {
-        release {
+        // 🛠️ 開発・デバッグ環境の設定
+        getByName("debug") {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+
+            // AndroidManifest.xml に渡す変数
+            manifestPlaceholders["admobAppId"] = localProperties.getProperty("ADMOB_APP_ID_DEBUG")?.trim('"') ?: ""
+            // 💡 Kotlinコードから R.string.admob_unit_id で呼べるようにする
+            resValue("string", "admob_unit_id", localProperties.getProperty("ADMOB_UNIT_ID_DEBUG")?.trim('"') ?: "")
+        }
+
+        // 🚀 本番公開環境の設定
+        getByName("release") {
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // AndroidManifest.xml に渡す変数
+            manifestPlaceholders["admobAppId"] = localProperties.getProperty("ADMOB_APP_ID_RELEASE")?.trim('"') ?: ""
+            // 💡 Kotlinコードから R.string.admob_unit_id で呼べるようにする
+            resValue("string", "admob_unit_id", localProperties.getProperty("ADMOB_UNIT_ID_RELEASE")?.trim('"') ?: "")
         }
     }
     compileOptions {
@@ -36,6 +62,8 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+        resValues = true
     }
 }
 
@@ -56,4 +84,6 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    // Google Mobile Ads SDK の追加
+    implementation(libs.play.services.ads)
 }

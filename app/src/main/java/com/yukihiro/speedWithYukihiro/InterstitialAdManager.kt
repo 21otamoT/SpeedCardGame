@@ -59,6 +59,7 @@ class InterstitialAdManager(private val activity: Activity) {
                 override fun onAdFailedToShowFullScreenContent(adError: AdError) {
                     Log.d(TAG, "広告の表示に失敗しました。")
                     mInterstitialAd = null
+                    loadAd()
                     onAdClosed() // 失敗してもアプリが止まらないように次の処理へ
                 }
             }
@@ -66,6 +67,7 @@ class InterstitialAdManager(private val activity: Activity) {
             mInterstitialAd?.show(activity)
         } else {
             Log.d(TAG, "❌ 広告を表示しようとしましたが、まだダウンロードが完了していません（nullです）。")
+            loadAd()
             onAdClosed() // 広告を出さずに次の処理へ
         }
     }

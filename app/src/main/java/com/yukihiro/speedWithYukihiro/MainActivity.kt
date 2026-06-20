@@ -59,116 +59,28 @@ class MainActivity : ComponentActivity() {
         setContent {
             val context = LocalContext.current
 
-            // 💡 画面の遷移状態を管理するStateを追加します（初期値は "START"）
-            var currentScreen by remember { mutableStateOf("START") }
+            // 💡 エンジンとCOMクラスをrememberで生成して保持
+            val engine = remember { SpeedGameEngine() }
+            val comPlayer = remember { ComPlayer(engine) }
 
-            // 1. デッキを1回だけ生成・シャッフル（ここは大正解です！）
-            val initialShuffledDeck = remember { createShuffledDeck() }
-
-            // 2. 生成したデッキを使って、それぞれのStateを初期化する（空リストにせず、ここで配る！）
-            var playerHands by remember { mutableStateOf(initialShuffledDeck.subList(0, 4)) }
-            var comHands by remember { mutableStateOf(initialShuffledDeck.subList(4, 8)) }
-            var fieldCards by remember {
-                mutableStateOf(
-                    Pair<Card?, Card?>(
-                        initialShuffledDeck[8],
-                        initialShuffledDeck[9]
-                    )
-                )
-            }
-            var drawDeck by remember {
-                mutableStateOf(
-                    initialShuffledDeck.subList(
-                        10,
-                        initialShuffledDeck.size
-                    )
-                )
+            // 勝敗の監視
+            LaunchedEffect(engine.playerHands, engine.comHands, engine.drawDeck) {
+                engine.checkWinner()
             }
 
-            // null: プレイ中, "PLAYER": プレイヤー勝利, "COM": COMの勝利
-            var winner by remember { mutableStateOf<String?>(null) }
-
-            // GAME画面のスコープ内に追加
-            var leftFieldOffset by remember { mutableStateOf(Offset.Zero) }
-            var rightFieldOffset by remember { mutableStateOf(Offset.Zero) }
-
-            // アニメーション中のカード情報（nullならアニメーションしていない）
-            var flyingCard by remember { mutableStateOf<Card?>(null) }
-            var flyingCardOffset by remember { mutableStateOf(Offset.Zero) }
-            // 実際のアニメーション値を生成するクラス
-            val animatableOffset = remember {
-                Animatable(
-                    Offset.Zero,
-                    Offset.VectorConverter
-                )
-            }
-
-            // -------------------------------------------------------------
-            // 【新設】手札や山札の変化を監視して勝敗を判定する (Reactの useEffect に相当)
-            // -------------------------------------------------------------
-            LaunchedEffect(playerHands, comHands, drawDeck) {
-                if (winner != null) return@LaunchedEffect
-
-                // プレイヤーの手札と山札が両方空ならプレイヤーの勝ち
-                if (playerHands.isEmpty() && drawDeck.isEmpty()) {
-                    winner = "PLAYER"
-                    currentScreen = "RESULT"
-                }
-                // COMの手札と山札が両方空ならCOMの勝ち
-                else if (comHands.isEmpty() && drawDeck.isEmpty()) {
-                    winner = "COM"
-                    currentScreen = "RESULT"
-                }
-            }
-
-            // -------------------------------------------------------------
             // COMの自動思考 ＋ 手詰まり自動解消ループ
-            // -------------------------------------------------------------
-            LaunchedEffect(winner, currentScreen) {
-                if (winner != null || currentScreen != "GAME") return@LaunchedEffect
+            LaunchedEffect(engine.winner, engine.currentScreen) {
+                if (engine.winner != null || engine.currentScreen != "GAME") return@LaunchedEffect
                 var stuckCount = 0
                 while (true) {
                     delay(1000)
 
-                    val leftField = fieldCards.first
-                    val rightField = fieldCards.second
-
-                    val playerCanPlay = playerHands.any { card ->
-                        (leftField != null && canPlaceCard(
-                            leftField,
-                            card
-                        )) || (rightField != null && canPlaceCard(rightField, card))
-                    }
-                    val comCanPlay = comHands.any { card ->
-                        (leftField != null && canPlaceCard(
-                            leftField,
-                            card
-                        )) || (rightField != null && canPlaceCard(rightField, card))
-                    }
-
-                    // 誰も出せない（手詰まり）状態のときの処理
-                    if (!playerCanPlay && !comCanPlay) {
+                    if (!comPlayer.canAnyonePlay()) {
                         stuckCount++
                         if (stuckCount >= 2) {
-                            if (drawDeck.size >= 2) {
-                                fieldCards = Pair(drawDeck[0], drawDeck[1])
-                                drawDeck = drawDeck.drop(2)
-                                Toast.makeText(
-                                    context,
-                                    "あいない！（場を更新します）",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                if (playerHands.isNotEmpty() && comHands.isNotEmpty()) {
-                                    fieldCards = Pair(playerHands.first(), comHands.first())
-                                    playerHands = playerHands.drop(1)
-                                    comHands = comHands.drop(1)
-                                    Toast.makeText(
-                                        context,
-                                        "山札がありません！手札を場に出します",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
+                            val msg = engine.handleStuck()
+                            if (msg.isNotEmpty()) {
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             }
                             stuckCount = 0
                         }
@@ -176,37 +88,25 @@ class MainActivity : ComponentActivity() {
                     }
 
                     stuckCount = 0
-
-                    // 【COMの思考】50%の確率で実行
-                    if (Math.random() > 0.5) {
-                        val playableCard = comHands.firstOrNull { card ->
-                            (leftField != null && canPlaceCard(
-                                leftField,
-                                card
-                            )) || (rightField != null && canPlaceCard(rightField, card))
-                        }
-                        if (playableCard != null) {
-                            if (leftField != null && canPlaceCard(leftField, playableCard)) {
-                                fieldCards = Pair(playableCard, rightField)
-                            } else if (rightField != null && canPlaceCard(
-                                    rightField,
-                                    playableCard
-                                )
-                            ) {
-                                fieldCards = Pair(leftField, playableCard)
-                            }
-
-                            comHands = refreshHands(comHands, playableCard, drawDeck)
-                            if (drawDeck.isNotEmpty()) drawDeck = drawDeck.drop(1)
-                        }
-                    }
+                    comPlayer.executeThink()
                 }
             }
+
+            // アニメーション用State
+            var leftFieldOffset by remember { mutableStateOf(Offset.Zero) }
+            var rightFieldOffset by remember { mutableStateOf(Offset.Zero) }
+            // アニメーション中のカード情報（nullならアニメーションしていない）
+            var flyingCard by remember { mutableStateOf<Card?>(null) }
+            var flyingCardOffset by remember { mutableStateOf(Offset.Zero) }
+            // 実際のアニメーション値を生成するクラス
+            val animatableOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+            val coroutineScope = rememberCoroutineScope()
+
 
             // -------------------------------------------------------------
             // 💡 画面レイアウト（currentScreen の値で3種類に条件分岐）
             // -------------------------------------------------------------
-            when (currentScreen) {
+            when (engine.currentScreen) {
                 "START" -> {
                     // 🎬 【1. スタート画面】
                     Box(
@@ -236,7 +136,7 @@ class MainActivity : ComponentActivity() {
                                 // 4. タップするとゲーム画面に遷移するボタン
                                 Button(
                                     onClick = {
-                                        currentScreen = "GAME"
+                                        engine.currentScreen = "GAME"
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                                 ) {
@@ -252,15 +152,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 "GAME" -> {
-                    val coroutineScope = rememberCoroutineScope()
-
                     // 💡 画面全体を覆う最大のコンテナ（Box）を用意します
                     Box(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // -------------------------------------------------------------
-                        // 💡 【新要素】ゲーム画面の背景画像を一番奥に敷きます
-                        // -------------------------------------------------------------
                         Image(
                             painter = painterResource(id = R.drawable.bg_game),
                             contentDescription = "ゲーム画面の背景",
@@ -268,15 +163,13 @@ class MainActivity : ComponentActivity() {
                             // 縦横比を保ったまま画面いっぱいに広げて切り抜く設定（CSSの background-size: cover）
                             contentScale = ContentScale.Crop
                         )
-
-                        // 💡 以前作ったゲームプレイのUI全体（Column）です。背景画像の上に重なります。
                         Column(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
                             // 【上】COMの手札
                             PlayerHandsView(
-                                hands = comHands,
+                                hands = engine.comHands,
                                 onCardClick = { _, _ ->
                                     Toast.makeText(context, "それは相手の手札です", Toast.LENGTH_SHORT).show()
                                 }
@@ -292,7 +185,7 @@ class MainActivity : ComponentActivity() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 // 左の場
-                                fieldCards.first?.let { leftCard ->
+                                engine.fieldCards.first?.let { leftCard ->
                                     PlayingCardView(card = leftCard, modifier = Modifier
                                         .padding(8.dp)
                                         .onGloballyPositioned{ coordinates ->
@@ -302,7 +195,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 // 右の場
-                                fieldCards.second?.let { rightCard ->
+                                engine.fieldCards.second?.let { rightCard ->
                                     PlayingCardView(card = rightCard, modifier = Modifier
                                         .padding(8.dp)
                                         .onGloballyPositioned{ coordinates ->
@@ -315,20 +208,19 @@ class MainActivity : ComponentActivity() {
 
                             // 【下】プレイヤーの手札
                             PlayerHandsView(
-                                hands = playerHands,
+                                hands = engine.playerHands,
                                 onCardClick = { clickedCard, startOffset ->
-                                    val leftField = fieldCards.first
-                                    val rightField = fieldCards.second
+                                    val (leftField, rightField) = engine.fieldCards
 
                                     // 飛ぶ前の事前チェック
-                                    if ((leftField != null && canPlaceCard(leftField, clickedCard)) ||
-                                        (rightField != null && canPlaceCard(rightField, clickedCard))) {
+                                    if ((leftField != null && engine.canPlaceCard(leftField, clickedCard)) ||
+                                        (rightField != null && engine.canPlaceCard(rightField, clickedCard))) {
 
                                         coroutineScope.launch {
                                             flyingCard = clickedCard
                                             animatableOffset.snapTo(startOffset)
 
-                                            val targetOffset = if (leftField != null && canPlaceCard(leftField, clickedCard)) {
+                                            val targetOffset = if (leftField != null && engine.canPlaceCard(leftField, clickedCard)) {
                                                 leftFieldOffset
                                             } else {
                                                 rightFieldOffset
@@ -341,18 +233,16 @@ class MainActivity : ComponentActivity() {
                                             )
 
                                             // 🌟 【重要】アニメーション完了後の「最新の場の状態」を取得する
-                                            val currentLeft = fieldCards.first
-                                            val currentRight = fieldCards.second
+                                            val currentLeft = engine.fieldCards.first
+                                            val currentRight = engine.fieldCards.second
 
                                             // 最新の場で改めて出せるかチェック！（飛んでいる間にCOMに出されていないか？）
-                                            if (currentLeft != null && canPlaceCard(currentLeft, clickedCard)) {
-                                                fieldCards = Pair(clickedCard, currentRight)
-                                                playerHands = refreshHands(playerHands, clickedCard, drawDeck)
-                                                if (drawDeck.isNotEmpty()) drawDeck = drawDeck.drop(1)
-                                            } else if (currentRight != null && canPlaceCard(currentRight, clickedCard)) {
-                                                fieldCards = Pair(currentLeft, clickedCard)
-                                                playerHands = refreshHands(playerHands, clickedCard, drawDeck)
-                                                if (drawDeck.isNotEmpty()) drawDeck = drawDeck.drop(1)
+                                            if (currentLeft != null && engine.canPlaceCard(currentLeft, clickedCard)) {
+                                                engine.fieldCards = Pair(clickedCard, currentRight)
+                                                engine.playerHands = engine.refreshHands(engine.playerHands, clickedCard)
+                                            } else if (currentRight != null && engine.canPlaceCard(currentRight, clickedCard)) {
+                                                engine.fieldCards = Pair(currentLeft, clickedCard)
+                                                engine.playerHands = engine.refreshHands(engine.playerHands, clickedCard)
                                             } else {
                                                 // タッチの差でCOMに先を越された場合の処理（スピードの醍醐味！）
                                                 Toast.makeText(context, "タッチの差で出せなくなった！", Toast.LENGTH_SHORT).show()
@@ -392,24 +282,18 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = if (winner == "PLAYER") "🥳 YOU WIN! 🎉" else "😭 YOU LOSE... 💔",
+                                text = if (engine.winner == "PLAYER") "🥳 YOU WIN! 🎉" else "😭 YOU LOSE... 💔",
                                 fontSize = 32.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (winner == "PLAYER") Color(0xFF4CAF50) else Color.Red
+                                color = if (engine.winner == "PLAYER") Color(0xFF4CAF50) else Color.Red
                             )
                             Spacer(modifier = Modifier.height(32.dp))
 
                             Button(
                                 onClick = {
                                     // リセットしてゲームプレイ画面（"GAME"）に戻す
-                                    val newDeck = createShuffledDeck()
-                                    playerHands = newDeck.subList(0, 4)
-                                    comHands = newDeck.subList(4, 8)
-                                    fieldCards = Pair(newDeck[8], newDeck[9])
-                                    drawDeck = newDeck.subList(10, newDeck.size)
-                                    winner = null
-
-                                    currentScreen = "GAME" // 💡 再びゲーム画面へ戻す
+                                    engine.resetGame()
+                                    engine.currentScreen = "GAME"
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                             ) {
@@ -421,31 +305,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
-
-// スート（マーク）の定義
-enum class Suit(val symbol: String, val isRed: Boolean) {
-    SPADE("♠", false),
-    HEART("♥", true),
-    DIAMOND("♦", true),
-    CLUB("♣", false)
-}
-
-// カード1枚を表するデータモデル
-data class Card(
-    val suit: Suit,
-    val value: Int, // 1〜13
-    val id: String = UUID.randomUUID().toString()
-) {
-    // 表示用の文字（1 -> "A", 11 -> "J", 12 -> "Q", 13 -> "K"）
-    val displayText: String
-        get() = when (value) {
-            1 -> "A"
-            11 -> "J"
-            12 -> "Q"
-            13 -> "K"
-            else -> value.toString()
-        }
 }
 
 @Composable
@@ -551,37 +410,4 @@ fun PlayerHandsView(
             }
         }
     }
-}
-
-fun refreshHands(currentHands: List<Card>, usedCard: Card, deck: List<Card>): List<Card> {
-    // Reactの currentHands.map(c => c === usedCard ? deck[0] : c) と同じ処理
-    return currentHands.map { card ->
-        if (card == usedCard) {
-            if (deck.isNotEmpty()) {
-                deck.first() // 山札が残っていればその1枚を補充
-            } else {
-                // 山札が空なら、この手札の枠は消去（スピードの終盤状態）
-                null
-            }
-        } else {
-            card
-        }
-    }.filterNotNull() // nullになった要素（空の枠）を除去して詰める
-}
-
-// カードを出せるかどうかの判定関数
-fun canPlaceCard(fieldCard: Card, playerCard: Card): Boolean {
-    val diff = Math.abs(fieldCard.value - playerCard.value)
-    // 差が 1 (例: 3と4)、または 12 (1と13の繋がり) であれば出せる
-    return diff == 1 || diff == 12
-}
-
-fun createShuffledDeck(): List<Card> {
-    val fullDeck = mutableListOf<Card>()
-    for (suit in Suit.values()) {
-        for (value in 1..13) {
-            fullDeck.add(Card(suit, value))
-        }
-    }
-    return fullDeck.shuffled()
 }

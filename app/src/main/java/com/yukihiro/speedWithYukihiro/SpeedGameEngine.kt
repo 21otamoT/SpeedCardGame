@@ -28,7 +28,7 @@ class SpeedGameEngine {
 
     private fun createShuffledDeck(): List<Card> {
         val fullDeck = mutableListOf<Card>()
-        for (suit in Suit.values()) {
+        for (suit in Suit.entries) {
             for (value in 1..13) {
                 fullDeck.add(Card(suit, value))
             }
@@ -73,8 +73,11 @@ class SpeedGameEngine {
             drawDeck = drawDeck.drop(2)
             "あいない！（場を更新します）"
         } else if (playerHands.isNotEmpty() && comHands.isNotEmpty()) {
-            fieldCards = Pair(playerHands.first(), comHands.first())
+            val nextPlayerField = playerHands.first()
+            val nextComField = comHands.first()
+            fieldCards = Pair(nextPlayerField, nextComField)
             playerHands = playerHands.drop(1)
+            comHands = comHands.drop(1)
             "山札がありません！手札を場に出します"
         } else ""
     }

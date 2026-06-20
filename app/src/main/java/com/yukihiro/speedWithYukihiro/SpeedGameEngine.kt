@@ -47,10 +47,10 @@ class SpeedGameEngine {
         if (winner != null) return
         if (playerHands.isEmpty() && drawDeck.isEmpty()) {
             winner = "PLAYER"
-            currentScreen = "RESULT"
+//            currentScreen = "RESULT"
         } else if (comHands.isEmpty() && drawDeck.isEmpty()) {
             winner = "COM"
-            currentScreen = "RESULT"
+//            currentScreen = "RESULT"
         }
     }
 

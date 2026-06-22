@@ -8,7 +8,7 @@ import androidx.compose.runtime.setValue
 enum class Difficulty(val label: String, val delayMillis: Long, val successChance: Double) {
     EASY("かんたん", 1500L, 0.3),
     NORMAL("ふつう", 1000L, 0.5),
-    HARD("むずかしい", 4000L, 0.8) // 400ms(0.4秒)
+    HARD("むずかしい", 600L, 0.8) // 600ms(0.6秒)
 }
 class SpeedGameEngine {
     // 全ての状態（State）をエンジンが管理する

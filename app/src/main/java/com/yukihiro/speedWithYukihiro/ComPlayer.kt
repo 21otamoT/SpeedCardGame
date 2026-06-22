@@ -15,8 +15,9 @@ class ComPlayer(private val engine: SpeedGameEngine) {
     fun executeThink() {
         if (engine.winner != null) return
 
-        // 50%の確率で行動
-        if (!Random.nextBoolean()) return
+        // 💡 選択された難易度の確率に基づいて行動するか決める
+        val currentDiff = engine.selectedDifficulty
+        if (Random.nextDouble() > currentDiff.successChance) return
 
         val (left, right) = engine.fieldCards
 

@@ -48,14 +48,19 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
+import androidx.core.view.WindowCompat
 import com.google.android.gms.ads.MobileAds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // システムUI（ナビゲーションバー・ステータスバー）を非表示にする設定
+        setupImmersiveMode()
         val adManager = InterstitialAdManager(this)
         // SDKの初期化と広告の初回ロード
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
@@ -89,7 +94,8 @@ class MainActivity : ComponentActivity() {
                 if (engine.winner != null || engine.currentScreen != "GAME") return@LaunchedEffect
                 var stuckCount = 0
                 while (true) {
-                    delay(1000)
+                    // 💡 固定の1000msではなく、難易度に応じたディレイにする
+                    delay(engine.selectedDifficulty.delayMillis)
 
                     if (!comPlayer.canAnyonePlay()) {
                         stuckCount++
@@ -136,13 +142,31 @@ class MainActivity : ComponentActivity() {
                             contentScale = ContentScale.Crop
                         )
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            // 2. 💡 上側のエリアを全体の「2/3」にするための Spacer
                             Spacer(modifier = Modifier.weight(2f))
 
-                            // =============================================================
-                            // 📥 【下側 1/3 のエリア】（ボタンをこのエリアの真ん中に置く）
-                            // =============================================================
-                            // 3. この Box が下側「1/3」のエリアを確保し、その中の中央（Alignment.Center）にボタンを配置します
+                            // 💡 難易度選択ボタンを横並びで配置
+                            Text("難易度を選択してください", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(16.dp)
+                            ) {
+                                Difficulty.entries.forEach { diff ->
+                                    val isSelected = engine.selectedDifficulty == diff
+                                    Button(
+                                        onClick = { engine.selectedDifficulty = diff },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isSelected) Color.Red else Color.Transparent,
+                                            contentColor = if (isSelected) Color.White else Color.White
+                                        )
+                                    ) {
+                                        Text(diff.label)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -319,6 +343,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+    private fun setupImmersiveMode() {
+        // 1. アプリのコンテンツ領域をシステムバーの裏側（画面の端）まで広げる
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // 2. Controllerを取得してシステムUIの挙動を制御する
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            // ステータスバーとナビゲーションバーの両方を非表示
+            hide(WindowInsetsCompat.Type.systemBars())
+
+            // スワイプで一時的に表示（数秒後に自動で再非表示）されるモードに設定
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 }

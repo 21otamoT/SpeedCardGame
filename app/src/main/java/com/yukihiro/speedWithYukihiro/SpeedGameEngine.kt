@@ -4,6 +4,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
+// 💡 難易度を定義（ディレイ時間と、行動確率をセットにする）
+enum class Difficulty(val label: String, val delayMillis: Long, val successChance: Double) {
+    EASY("かんたん", 1500L, 0.3),
+    NORMAL("ふつう", 1000L, 0.5),
+    HARD("むずかしい", 4000L, 0.8) // 400ms(0.4秒)
+}
 class SpeedGameEngine {
     // 全ての状態（State）をエンジンが管理する
     var currentScreen by mutableStateOf("START")
@@ -12,6 +18,8 @@ class SpeedGameEngine {
     var fieldCards by mutableStateOf<Pair<Card?, Card?>>(Pair(null, null))
     var drawDeck by mutableStateOf<List<Card>>(emptyList())
     var winner by mutableStateOf<String?>(null)
+    // 💡 現在の難易度（初期値は NORMAL）
+    var selectedDifficulty by mutableStateOf(Difficulty.NORMAL)
 
     init {
         resetGame()

@@ -20,6 +20,10 @@ class SpeedGameEngine {
     var winner by mutableStateOf<String?>(null)
     // 💡 現在の難易度（初期値は NORMAL）
     var selectedDifficulty by mutableStateOf(Difficulty.NORMAL)
+    // 💡 現在のコンボ数
+    var comboCount by mutableStateOf(0)
+    // 💡 最後にプレイヤーがカードを出した時間（ミリ秒）
+    private var lastPlayedTime: Long = 0L
 
     init {
         resetGame()
@@ -32,6 +36,7 @@ class SpeedGameEngine {
         fieldCards = Pair(newDeck[8], newDeck[9])
         drawDeck = newDeck.subList(10, newDeck.size)
         winner = null
+        comboCount = 0
     }
 
     private fun createShuffledDeck(): List<Card> {
@@ -88,5 +93,22 @@ class SpeedGameEngine {
             comHands = comHands.drop(1)
             "山札がありません！手札を場に出します"
         } else ""
+    }
+
+    fun registerPlayerMove() {
+        val currentTime = System.currentTimeMillis()
+
+        // 2000ミリ秒（2秒）以内の連続プレイならコンボ成立
+        if (currentTime - lastPlayedTime <= 2000L) {
+            comboCount++
+        } else {
+            comboCount = 1 // 最初の1枚目、またはタイマー切れ後は1リセット
+        }
+        lastPlayedTime = currentTime
+    }
+
+    // 💡 COMがカードを出した時や、手詰まりで場が更新された時はコンボをリセットする
+    fun resetCombo() {
+        comboCount = 0
     }
 }

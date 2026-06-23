@@ -18,7 +18,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,7 +41,9 @@ import kotlinx.coroutines.delay
 import kotlin.Pair
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.ExperimentalFoundationApi // 👈 animateItem用
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -50,9 +51,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import com.google.android.gms.ads.MobileAds
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
@@ -124,6 +123,13 @@ class MainActivity : ComponentActivity() {
             val animatableOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
             val coroutineScope = rememberCoroutineScope()
 
+            // コンボの自動消失タイマー
+            LaunchedEffect(engine.comboCount) {
+                if (engine.comboCount > 0) {
+                    delay(2000L) // 2秒間次のカードが出なければ
+                    engine.resetCombo() // コンボ終了
+                }
+            }
 
             // -------------------------------------------------------------
             // 💡 画面レイアウト（currentScreen の値で3種類に条件分岐）
@@ -214,6 +220,13 @@ class MainActivity : ComponentActivity() {
                                     Toast.makeText(context, "それは相手の手札です", Toast.LENGTH_SHORT).show()
                                 }
                             )
+                            // コンボ表示するためにBoxを追加したためフィールを中央に置くためにからのBoxを配置
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {}
 
                             // 【中央】場のカード（台札：左と右）
                             Row(
@@ -242,6 +255,23 @@ class MainActivity : ComponentActivity() {
                                             // 右の場の絶対座標を保存
                                             rightFieldOffset = coordinates.positionInRoot()
                                         }
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (engine.comboCount >= 2) {
+                                    Text(
+                                        text = "${engine.comboCount} COMBO 🔥",
+                                        fontSize = (24 + engine.comboCount * 2).sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color(0xFFFF9800),
+                                        style = MaterialTheme.typography.headlineLarge
                                     )
                                 }
                             }
@@ -280,9 +310,11 @@ class MainActivity : ComponentActivity() {
                                             if (currentLeft != null && engine.canPlaceCard(currentLeft, clickedCard)) {
                                                 engine.fieldCards = Pair(clickedCard, currentRight)
                                                 engine.playerHands = engine.refreshHands(engine.playerHands, clickedCard)
+                                                engine.registerPlayerMove()
                                             } else if (currentRight != null && engine.canPlaceCard(currentRight, clickedCard)) {
                                                 engine.fieldCards = Pair(currentLeft, clickedCard)
                                                 engine.playerHands = engine.refreshHands(engine.playerHands, clickedCard)
+                                                engine.registerPlayerMove()
                                             } else {
                                                 // タッチの差でCOMに先を越された場合の処理（スピードの醍醐味！）
                                                 Toast.makeText(context, "タッチの差で出せなくなった！", Toast.LENGTH_SHORT).show()

@@ -28,8 +28,10 @@ class ComPlayer(private val engine: SpeedGameEngine) {
         // 出せる方に配置
         if (left != null && engine.canPlaceCard(left, playableCard)) {
             engine.fieldCards = Pair(playableCard, right)
+            engine.resetCombo()
         } else if (right != null && engine.canPlaceCard(right, playableCard)) {
             engine.fieldCards = Pair(left, playableCard)
+            engine.resetCombo()
         }
 
         // 手札の更新

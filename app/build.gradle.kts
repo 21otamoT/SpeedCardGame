@@ -25,8 +25,8 @@ android {
         applicationId = "com.yukihiro.speedWithYukihiro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.1"
+        versionCode = 7
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -86,4 +86,5 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     // Google Mobile Ads SDK の追加
     implementation(libs.play.services.ads)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
 }

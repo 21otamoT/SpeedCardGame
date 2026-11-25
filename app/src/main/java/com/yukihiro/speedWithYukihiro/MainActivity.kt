@@ -54,6 +54,7 @@ import com.google.android.gms.ads.MobileAds
 import kotlinx.coroutines.launch
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,46 +71,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        val soundManager = SoundManager(this)
         setContent {
             val context = LocalContext.current
-            // 💡 エンジンとCOMクラスをrememberで生成して保持
-            val engine = remember { SpeedGameEngine() }
-            val comPlayer = remember { ComPlayer(engine) }
+            val vm: GameViewModel = viewModel()
+            val engine = vm.engine
+
+            // ViewModelからのメッセージをToastで表示
+            LaunchedEffect(Unit) {
+                vm.messages.collect { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
 
             // 勝敗の監視
             LaunchedEffect(engine.playerHands, engine.comHands, engine.drawDeck) {
                 engine.checkWinner()
                 if (engine.winner != null && engine.currentScreen == "GAME") {
+                    vm.onGameFinished()
                     // 勝敗が決まったら、まず広告を表示する
                     adManager.showAd {
                         // 💡 広告が閉じられた（または準備がなくてスキップされた）後に、初めて結果画面に切り替える
                         engine.currentScreen = "RESULT"
                     }
-                }
-            }
-
-            // COMの自動思考 ＋ 手詰まり自動解消ループ
-            LaunchedEffect(engine.winner, engine.currentScreen) {
-                if (engine.winner != null || engine.currentScreen != "GAME") return@LaunchedEffect
-                var stuckCount = 0
-                while (true) {
-                    // 💡 固定の1000msではなく、難易度に応じたディレイにする
-                    delay(engine.selectedDifficulty.delayMillis)
-
-                    if (!comPlayer.canAnyonePlay()) {
-                        stuckCount++
-                        if (stuckCount >= 2) {
-                            val msg = engine.handleStuck()
-                            if (msg.isNotEmpty()) {
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                            }
-                            stuckCount = 0
-                        }
-                        continue
-                    }
-
-                    stuckCount = 0
-                    comPlayer.executeThink()
                 }
             }
 
@@ -182,7 +166,7 @@ class MainActivity : ComponentActivity() {
                                 // 4. タップするとゲーム画面に遷移するボタン
                                 Button(
                                     onClick = {
-                                        engine.currentScreen = "GAME"
+                                        vm.startGame()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                                 ) {
@@ -287,6 +271,9 @@ class MainActivity : ComponentActivity() {
                                         (rightField != null && engine.canPlaceCard(rightField, clickedCard))) {
 
                                         coroutineScope.launch {
+                                            // カードが飛び出す瞬間に音を鳴らす
+                                            soundManager.playSwipe()
+
                                             flyingCard = clickedCard
                                             animatableOffset.snapTo(startOffset)
 
@@ -364,8 +351,7 @@ class MainActivity : ComponentActivity() {
                             Button(
                                 onClick = {
                                     // リセットしてゲームプレイ画面（"GAME"）に戻す
-                                    engine.resetGame()
-                                    engine.currentScreen = "GAME"
+                                    vm.retry()
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                             ) {
